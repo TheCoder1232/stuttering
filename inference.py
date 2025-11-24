@@ -313,8 +313,30 @@ class StutterPredictor:
 if __name__ == "__main__":
     # Replace this with the path to your actual trained model file
     # The new training script outputs files like 'stutter_model_epoch_10.pth'
-    model_path = "./models/stutter_model_epoch_10.pth"
-    
+    import glob
+    import os
+
+    # Directory containing audio files
+    audio_dir = "dataset/wav_files_16k"
+    audio_files = sorted(glob.glob(os.path.join(audio_dir, "*.wav")))[:100]
+
+    if not audio_files:
+        print(f"No audio files found in {audio_dir}")
+        exit()
+
+    # Load model (update path as needed)
+    model_path = "models/stutter_model_epoch_10.pth"
+    predictor = StutterPredictor(model_path)
+
+    print(f"Processing {len(audio_files)} audio files...")
+    for idx, audio_path in enumerate(audio_files, 1):
+        print(f"\n[{idx}] {os.path.basename(audio_path)}")
+        try:
+            result = predictor.predict_file(audio_path)
+            print(result)
+        except Exception as e:
+            print(f"Error processing {audio_path}: {e}")
+
     try:
         predictor = StutterPredictor(model_path)
         print("Model loaded successfully!")

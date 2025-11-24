@@ -14,3 +14,4 @@ pydantic>=1.10.0
 pydub>=0.25.1
 python-multipart>=0.0.5
 numpy>=1.23.0
+edge_tts>=6.1.4

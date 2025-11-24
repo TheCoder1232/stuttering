@@ -1,0 +1,22 @@
+[
+  {
+    "category": "Hard Start",
+    "text": "Peter Piper picked a peck of pickled peppers."
+  },
+  {
+    "category": "Vowel Onset",
+    "text": "Every evening, Alice eats apples at eight."
+  },
+  {
+    "category": "Complex",
+    "text": "The specific statistics of the speech system are surprising."
+  },
+  {
+    "category": "Conversational",
+    "text": "I would like to order a large coffee with almond milk, please."
+  },
+  {
+    "category": "Pacing",
+    "text": "Slow and steady wins the race, step by step."
+  }
+]

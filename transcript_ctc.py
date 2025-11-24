@@ -99,7 +99,7 @@ if __name__ == "__main__":
     # --- CONFIGURATION ---
     # Replace this with your actual wav file path
     # If you don't have a file yet, the script will show an error but is ready to run.
-    input_filename = r"E:\College\Final Y\Sem I\EDAI\stuttering\dataset\wav_files_16k\audio_0005_syllab_rep_clonic.wav" 
+    input_filename = r"E:\College\Final Y\Sem I\EDAI\stuttering\dataset\wav_files_16k\audio_0007_word_rep_clonic.wav" 
     
     try:
         # Check if file exists to prevent crash in demo

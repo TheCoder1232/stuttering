@@ -5,6 +5,10 @@ import soundfile as sf
 import torchaudio
 from transformers import Wav2Vec2Model
 import os
+import logging
+
+# Setup Module Logger
+logger = logging.getLogger("InferenceEngine")
 
 # --- 1. MODEL ARCHITECTURE ---
 class StutterDetector(nn.Module):
@@ -23,7 +27,7 @@ class StutterDetector(nn.Module):
 class StutterPredictor:
     def __init__(self, model_path):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print(f"[StutterPredictor] Loading model from {model_path} on {self.device}...")
+        logger.info(f"Loading model from {model_path} on {self.device}...")
         
         self.config = {
             'model_name': "facebook/wav2vec2-base",
@@ -36,75 +40,62 @@ class StutterPredictor:
         }
 
         try:
-            # Initialize Model
             self.model = StutterDetector(self.config['model_name'], self.config['num_classes'])
             
-            # Load Weights
             if os.path.exists(model_path):
                 checkpoint = torch.load(model_path, map_location=self.device)
                 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
                     self.model.load_state_dict(checkpoint['model_state_dict'])
                 else:
                     self.model.load_state_dict(checkpoint)
-                print("[StutterPredictor] Model weights loaded successfully.")
+                logger.info("Model weights loaded successfully.")
             else:
-                print(f"[StutterPredictor] WARNING: Checkpoint not found at {model_path}. using random weights.")
+                logger.warning(f"Checkpoint not found at {model_path}. Using random weights.")
 
             self.model.to(self.device)
             self.model.eval()
         except Exception as e:
-            print(f"[StutterPredictor] Critical Error loading model: {e}")
+            logger.critical(f"Error loading model: {e}", exc_info=True)
             self.model = None
 
     def _preprocess_audio(self, file_path):
-        """
-        Robust audio loading using SoundFile (fixes Windows torchaudio issues)
-        """
         try:
-            # 1. Read file using SoundFile
             audio_signal, sr = sf.read(file_path)
-            
-            # 2. Convert to Tensor
             waveform = torch.from_numpy(audio_signal).float()
             
-            # 3. Handle Channels: [Time] -> [1, Time] or [Time, Channels] -> [Channels, Time]
             if waveform.dim() == 1:
                 waveform = waveform.unsqueeze(0)
             else:
                 waveform = waveform.t()
             
-            # 4. Resample if needed
             target_sr = self.config['target_sr']
             if sr != target_sr:
                 resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=target_sr)
                 waveform = resampler(waveform)
                 
-            # 5. Mono check (use first channel if stereo)
             if waveform.shape[0] > 1:
                 waveform = waveform[0].unsqueeze(0)
 
-            # 6. Normalize
             if waveform.abs().max() > 0:
                 waveform = waveform / waveform.abs().max()
                 
-            return waveform.squeeze() # Return [samples]
+            return waveform.squeeze()
 
         except Exception as e:
-            print(f"Error loading audio: {e}")
+            logger.error(f"Error loading/preprocessing audio: {e}")
             return None
 
     def predict(self, file_path):
-        if self.model is None:
+        if self.model is None: 
+            logger.error("Predict called but model is None")
             return []
 
         waveform = self._preprocess_audio(file_path)
-        if waveform is None:
-            return []
+        if waveform is None: return []
 
-        # Windowing parameters
         target_sr = self.config['target_sr']
-        window_size = target_sr * 5  # 5 seconds context
-        stride = target_sr * 5       # Non-overlapping
+        window_size = target_sr * 5 
+        stride = target_sr * 5      
         
         all_events = []
         total_samples = len(waveform)
@@ -114,22 +105,25 @@ class StutterPredictor:
                 end_idx = min(start_idx + window_size, total_samples)
                 chunk = waveform[start_idx:end_idx]
                 
-                if len(chunk) < 1600: continue # Skip tiny chunks
+                if len(chunk) < 1600: continue 
                     
                 input_values = chunk.unsqueeze(0).to(self.device)
                 logits = self.model(input_values)
-                preds = torch.argmax(logits, dim=-1).squeeze().cpu().numpy()
+
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+                confidences, preds = torch.max(probs, dim=-1)
                 
-                # Approx 320 samples per output frame in Wav2Vec2 base
+                preds = preds.squeeze().cpu().numpy()
+                confidences = confidences.squeeze().cpu().numpy()
+                
                 model_stride_samples = 320 
-                
                 current_event = None
                 
                 for i, label_id in enumerate(preds):
                     label_name = self.id2label.get(label_id, 'unknown')
+                    score = float(confidences[i])
                     timestamp = (start_idx + (i * model_stride_samples)) / float(target_sr)
                     
-                    # Skip Fluent (0)
                     if label_id == 0:
                         if current_event:
                             current_event['end'] = timestamp
@@ -137,12 +131,12 @@ class StutterPredictor:
                             current_event = None
                         continue
                     
-                    # Start or Continue Event
                     if current_event is None:
                         current_event = {
                             'type': label_name, 
                             'start': timestamp, 
-                            'end': timestamp + 0.02
+                            'end': timestamp + 0.02,
+                            'scores': [score]
                         }
                     elif current_event['type'] != label_name:
                         current_event['end'] = timestamp
@@ -150,10 +144,12 @@ class StutterPredictor:
                         current_event = {
                             'type': label_name, 
                             'start': timestamp, 
-                            'end': timestamp + 0.02
+                            'end': timestamp + 0.02,
+                            'scores': [score]
                         }
+                    else:
+                        current_event['scores'].append(score)
                 
-                # Close trailing event in chunk
                 if current_event:
                     current_event['end'] = (start_idx + (len(preds) * model_stride_samples)) / float(target_sr)
                     all_events.append(current_event)
@@ -161,13 +157,25 @@ class StutterPredictor:
         return self._merge_events(all_events)
 
     def _merge_events(self, events, tolerance=0.2):
-        """Merge close events of the same type"""
         if not events: return []
         merged = [events[0]]
+        
         for curr in events[1:]:
             prev = merged[-1]
             if curr['type'] == prev['type'] and (curr['start'] - prev['end'] < tolerance):
                 prev['end'] = curr['end']
+                prev['scores'].extend(curr['scores'])
             else:
                 merged.append(curr)
-        return merged
+        
+        final_events = []
+        for ev in merged:
+            avg_score = sum(ev['scores']) / len(ev['scores'])
+            final_events.append({
+                'type': ev['type'],
+                'start': ev['start'],
+                'end': ev['end'],
+                'confidence': round(avg_score, 4)
+            })
+            
+        return final_events

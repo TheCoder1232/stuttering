@@ -9,3 +9,5 @@ models
 wav_files_16k
 
 __pycache__
+
+static_outputs

@@ -15,3 +15,4 @@ pydub>=0.25.1
 python-multipart>=0.0.5
 numpy>=1.23.0
 edge_tts>=6.1.4
+openai-whisper>=20230314

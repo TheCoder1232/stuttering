@@ -15,6 +15,7 @@ import asyncio
 # Engines
 from inference_engine import StutterPredictor
 from transcription_engine import SpeechCorrector
+from whisper_engine import WhisperTranscriber
 from tts_engine import FluencyGenerator
 
 MODEL_PATH = r"../../models/stutter_model_epoch_10.pth" 
@@ -41,6 +42,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 stutter_engine = StutterPredictor(MODEL_PATH)
 transcription_engine = SpeechCorrector("facebook/wav2vec2-large-960h")
+# whisper_engine = WhisperTranscriber("base.en")
+whisper_engine = WhisperTranscriber("small.en")
 tts_engine = FluencyGenerator()
 
 # --- DATA MODELS ---
@@ -158,7 +161,14 @@ async def analyze_audio(file: UploadFile = File(...)):
             public_original_path
         )
 
-        await tts_engine.generate(corrected_text, public_corrected_path)
+        # Generate target transcript using Whisper
+        target_transcript = await loop.run_in_executor(
+            None,
+            whisper_engine.transcribe,
+            public_original_path
+        )
+
+        await tts_engine.generate(target_transcript, public_corrected_path)
 
         penalty = sum([min((e['end'] - e['start']) * 10, 10) for e in events])
         score = max(0, int(100 - penalty))
@@ -170,7 +180,7 @@ async def analyze_audio(file: UploadFile = File(...)):
             "original_audio_url": f"{base_url}/{original_filename}",
             "corrected_audio_url": f"{base_url}/{corrected_filename}",
             "original_transcript": transcript,
-            "corrected_transcript": corrected_text,
+            "corrected_transcript": target_transcript,
             "fluency_score": score,
             "events": events,
             "feedback": generate_feedback(events)

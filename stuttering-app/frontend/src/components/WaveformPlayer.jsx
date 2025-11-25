@@ -8,6 +8,7 @@ const WaveformPlayer = ({ audioUrl, regions = [], label, color = "#4f46e5", onRe
   const waveSurferRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     if (!audioUrl) return;
@@ -15,6 +16,7 @@ const WaveformPlayer = ({ audioUrl, regions = [], label, color = "#4f46e5", onRe
     const initWaveSurfer = async () => {
       if (waveSurferRef.current) waveSurferRef.current.destroy();
 
+      setIsReady(false);
       const wsRegions = RegionsPlugin.create();
       regionsPluginRef.current = wsRegions;
 
@@ -33,6 +35,7 @@ const WaveformPlayer = ({ audioUrl, regions = [], label, color = "#4f46e5", onRe
       });
 
       ws.on("decode", () => {
+        setIsReady(true);
         if (onReady) onReady(ws.getDuration());
       });
 
@@ -50,17 +53,27 @@ const WaveformPlayer = ({ audioUrl, regions = [], label, color = "#4f46e5", onRe
   }, [audioUrl, color, onReady]);
 
   useEffect(() => {
-    if (regionsPluginRef.current && waveSurferRef.current?.isReady) {
+    if (regionsPluginRef.current && isReady && regions.length > 0) {
       regionsPluginRef.current.clearRegions();
+      
+      regions.forEach((event, index) => {
+        regionsPluginRef.current.addRegion({
+          start: event.start,
+          end: event.end,
+          color: 'rgba(239, 68, 68, 0.2)',
+          drag: false,
+          resize: false,
+        });
+      });
     }
-  }, [regions]);
+  }, [regions, isReady]);
 
   useEffect(() => {
-    if (seekTimestamp?.timestamp !== undefined && waveSurferRef.current?.isReady) {
+    if (seekTimestamp?.timestamp !== undefined && waveSurferRef.current && isReady) {
       waveSurferRef.current.setTime(seekTimestamp.timestamp);
       waveSurferRef.current.play();
     }
-  }, [seekTimestamp]);
+  }, [seekTimestamp, isReady]);
 
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-4">
